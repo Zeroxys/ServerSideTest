@@ -30,30 +30,61 @@ function _asyncToGenerator(fn) { return function () { var gen = fn.apply(this, a
 
 
 
-var url = 'http://api.invent.mx/v1/actitudfem/node.json/22360f3a2e03f847acf5339695e42e5b??limit=9&sort=created:DESC&fields=id%7Ctitle%7Csummary%7Curl%7Cimages%7Ctype';
-
 var About = function About(props) {
   console.log(props.shows.data);
   return __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
-    __WEBPACK_IMPORTED_MODULE_2__components_layout__["a" /* default */],
+    'div',
     {
       __source: {
         fileName: _jsxFileName,
-        lineNumber: 10
+        lineNumber: 8
       }
     },
     __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
-      'h1',
+      'ul',
       {
         __source: {
           fileName: _jsxFileName,
-          lineNumber: 11
+          lineNumber: 9
         }
       },
-      'Batman TV Shows'
+      props.shows.data.map(function (show) {
+        return __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+          'li',
+          { key: show.id, __source: {
+              fileName: _jsxFileName,
+              lineNumber: 11
+            }
+          },
+          __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement('img', { src: show.images.files[0].url, __source: {
+              fileName: _jsxFileName,
+              lineNumber: 12
+            }
+          }),
+          __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+            __WEBPACK_IMPORTED_MODULE_3_next_link___default.a,
+            { as: '/p/' + show.id, href: '/post?id=' + show.id, __source: {
+                fileName: _jsxFileName,
+                lineNumber: 13
+              }
+            },
+            __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+              'a',
+              {
+                __source: {
+                  fileName: _jsxFileName,
+                  lineNumber: 14
+                }
+              },
+              show.title
+            )
+          )
+        );
+      })
     )
   );
 };
+
 About.getInitialProps = _asyncToGenerator( /*#__PURE__*/__WEBPACK_IMPORTED_MODULE_0_babel_runtime_regenerator___default.a.mark(function _callee() {
   var res, data;
   return __WEBPACK_IMPORTED_MODULE_0_babel_runtime_regenerator___default.a.wrap(function _callee$(_context) {
@@ -73,13 +104,12 @@ About.getInitialProps = _asyncToGenerator( /*#__PURE__*/__WEBPACK_IMPORTED_MODUL
 
 
           console.log('Show data fetched. Count: ' + data.length);
-          console.log(res);
 
           return _context.abrupt('return', {
             shows: data
           });
 
-        case 9:
+        case 8:
         case 'end':
           return _context.stop();
       }
@@ -100,7 +130,6 @@ var _default = About;
     return;
   }
 
-  reactHotLoader.register(url, 'url', '/home/miguel/Dev/Nextjs/actitudfem/pages/about.js');
   reactHotLoader.register(About, 'About', '/home/miguel/Dev/Nextjs/actitudfem/pages/about.js');
   reactHotLoader.register(_default, 'default', '/home/miguel/Dev/Nextjs/actitudfem/pages/about.js');
   leaveModule(module);
@@ -130,4 +159,4 @@ var _default = About;
 /***/ })
 
 })
-//# sourceMappingURL=4.c82ca5d1348b51f9bf7e.hot-update.js.map
+//# sourceMappingURL=4.024cb3e07c5ed84cb9b6.hot-update.js.map
