@@ -2,7 +2,7 @@ module.exports =
 
         __NEXT_REGISTER_PAGE('/', function() {
           var comp = 
-      webpackJsonp([5],{
+      webpackJsonp([4],{
 
 /***/ "./node_modules/babel-runtime/core-js/get-iterator.js":
 /***/ (function(module, exports, __webpack_require__) {
@@ -10631,7 +10631,7 @@ var _default = Index;
 
 /***/ }),
 
-/***/ 3:
+/***/ 2:
 /***/ (function(module, exports, __webpack_require__) {
 
 module.exports = __webpack_require__("./pages/index.js");
@@ -10639,7 +10639,7 @@ module.exports = __webpack_require__("./pages/index.js");
 
 /***/ })
 
-},[3])
+},[2])
           return { page: comp.default }
         })
       ;
