@@ -1,32 +1,50 @@
 const express = require('express')
 const axios = require('axios')
-const cors = require('cors')
-const React = require('react')
+const next = require('next')
 
-//React server side...
-const {renderToString} = require('react-dom/server')
+const dev = process.env.NODE_ENV !== 'production'
+const app = next({ dev })
+const handle = app.getRequestHandler()
 
 const port = process.env.PORT || 5000
-const app = express()
 
 const url = 'http://api.invent.mx/v1/actitudfem/node.json/22360f3a2e03f847acf5339695e42e5b??limit=9&sort=created:DESC&fields=id%7Ctitle%7Csummary%7Curl%7Cimages%7Ctype'
 
-app.use(cors({credentials: true, origin: true}))
+app.prepare()
+.then(() => {
+  const server = express()
 
-app.get("/", (req, res) => {
-  res.status(200).send({asd:'asdasd'})
-});
+  server.get('/p/:id', (req, res) => {
 
-app.get('/api', (req,res) => {
+    axios.get(url)
+      .then( response => {
+        response.data.data.filter(el => {
+          return el.id === req.params.id
+        })
+      })
+      .catch( err => console.log(err))
 
-  axios.get(url)
-    .then( response => res.status(200).send(response.data))
-    .catch( err => console.log(err))
+    const actualPage = '/' 
+    const queryParams = { id: req.params.id } 
+    app.render(req, res, actualPage, queryParams)
+  })
+
+  server.get('/api', (req,res) => {
+    axios.get(url)
+      .then( response => res.status(200).send(response.data))
+      .catch( err => console.log(err))
+  })
+
+  server.get('*', (req, res) => {
+    return handle(req, res)
+  })
+
+  server.listen(port, (err) => {
+    if (err) throw err
+    console.log(`> Ready on http://localhost:${port}`)
+  })
 })
-
-app.listen(port, (err) => {
-  if(err) {
-    console.log(`Server Fail at port ${port} log : ${err}`)
-  }
-  console.log(`Listen at port : ${port}`)
+.catch((ex) => {
+  console.error(ex.stack)
+  process.exit(1)
 })

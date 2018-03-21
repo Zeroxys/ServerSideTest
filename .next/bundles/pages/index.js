@@ -3333,6 +3333,315 @@ module.exports = defineProperties;
 
 /***/ }),
 
+/***/ "./node_modules/events/events.js":
+/***/ (function(module, exports) {
+
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+function EventEmitter() {
+  this._events = this._events || {};
+  this._maxListeners = this._maxListeners || undefined;
+}
+module.exports = EventEmitter;
+
+// Backwards-compat with node 0.10.x
+EventEmitter.EventEmitter = EventEmitter;
+
+EventEmitter.prototype._events = undefined;
+EventEmitter.prototype._maxListeners = undefined;
+
+// By default EventEmitters will print a warning if more than 10 listeners are
+// added to it. This is a useful default which helps finding memory leaks.
+EventEmitter.defaultMaxListeners = 10;
+
+// Obviously not all Emitters should be limited to 10. This function allows
+// that to be increased. Set to zero for unlimited.
+EventEmitter.prototype.setMaxListeners = function(n) {
+  if (!isNumber(n) || n < 0 || isNaN(n))
+    throw TypeError('n must be a positive number');
+  this._maxListeners = n;
+  return this;
+};
+
+EventEmitter.prototype.emit = function(type) {
+  var er, handler, len, args, i, listeners;
+
+  if (!this._events)
+    this._events = {};
+
+  // If there is no 'error' event listener then throw.
+  if (type === 'error') {
+    if (!this._events.error ||
+        (isObject(this._events.error) && !this._events.error.length)) {
+      er = arguments[1];
+      if (er instanceof Error) {
+        throw er; // Unhandled 'error' event
+      } else {
+        // At least give some kind of context to the user
+        var err = new Error('Uncaught, unspecified "error" event. (' + er + ')');
+        err.context = er;
+        throw err;
+      }
+    }
+  }
+
+  handler = this._events[type];
+
+  if (isUndefined(handler))
+    return false;
+
+  if (isFunction(handler)) {
+    switch (arguments.length) {
+      // fast cases
+      case 1:
+        handler.call(this);
+        break;
+      case 2:
+        handler.call(this, arguments[1]);
+        break;
+      case 3:
+        handler.call(this, arguments[1], arguments[2]);
+        break;
+      // slower
+      default:
+        args = Array.prototype.slice.call(arguments, 1);
+        handler.apply(this, args);
+    }
+  } else if (isObject(handler)) {
+    args = Array.prototype.slice.call(arguments, 1);
+    listeners = handler.slice();
+    len = listeners.length;
+    for (i = 0; i < len; i++)
+      listeners[i].apply(this, args);
+  }
+
+  return true;
+};
+
+EventEmitter.prototype.addListener = function(type, listener) {
+  var m;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events)
+    this._events = {};
+
+  // To avoid recursion in the case that type === "newListener"! Before
+  // adding it to the listeners, first emit "newListener".
+  if (this._events.newListener)
+    this.emit('newListener', type,
+              isFunction(listener.listener) ?
+              listener.listener : listener);
+
+  if (!this._events[type])
+    // Optimize the case of one listener. Don't need the extra array object.
+    this._events[type] = listener;
+  else if (isObject(this._events[type]))
+    // If we've already got an array, just append.
+    this._events[type].push(listener);
+  else
+    // Adding the second element, need to change to array.
+    this._events[type] = [this._events[type], listener];
+
+  // Check for listener leak
+  if (isObject(this._events[type]) && !this._events[type].warned) {
+    if (!isUndefined(this._maxListeners)) {
+      m = this._maxListeners;
+    } else {
+      m = EventEmitter.defaultMaxListeners;
+    }
+
+    if (m && m > 0 && this._events[type].length > m) {
+      this._events[type].warned = true;
+      console.error('(node) warning: possible EventEmitter memory ' +
+                    'leak detected. %d listeners added. ' +
+                    'Use emitter.setMaxListeners() to increase limit.',
+                    this._events[type].length);
+      if (typeof console.trace === 'function') {
+        // not supported in IE 10
+        console.trace();
+      }
+    }
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.on = EventEmitter.prototype.addListener;
+
+EventEmitter.prototype.once = function(type, listener) {
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  var fired = false;
+
+  function g() {
+    this.removeListener(type, g);
+
+    if (!fired) {
+      fired = true;
+      listener.apply(this, arguments);
+    }
+  }
+
+  g.listener = listener;
+  this.on(type, g);
+
+  return this;
+};
+
+// emits a 'removeListener' event iff the listener was removed
+EventEmitter.prototype.removeListener = function(type, listener) {
+  var list, position, length, i;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events || !this._events[type])
+    return this;
+
+  list = this._events[type];
+  length = list.length;
+  position = -1;
+
+  if (list === listener ||
+      (isFunction(list.listener) && list.listener === listener)) {
+    delete this._events[type];
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+
+  } else if (isObject(list)) {
+    for (i = length; i-- > 0;) {
+      if (list[i] === listener ||
+          (list[i].listener && list[i].listener === listener)) {
+        position = i;
+        break;
+      }
+    }
+
+    if (position < 0)
+      return this;
+
+    if (list.length === 1) {
+      list.length = 0;
+      delete this._events[type];
+    } else {
+      list.splice(position, 1);
+    }
+
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.removeAllListeners = function(type) {
+  var key, listeners;
+
+  if (!this._events)
+    return this;
+
+  // not listening for removeListener, no need to emit
+  if (!this._events.removeListener) {
+    if (arguments.length === 0)
+      this._events = {};
+    else if (this._events[type])
+      delete this._events[type];
+    return this;
+  }
+
+  // emit removeListener for all listeners on all events
+  if (arguments.length === 0) {
+    for (key in this._events) {
+      if (key === 'removeListener') continue;
+      this.removeAllListeners(key);
+    }
+    this.removeAllListeners('removeListener');
+    this._events = {};
+    return this;
+  }
+
+  listeners = this._events[type];
+
+  if (isFunction(listeners)) {
+    this.removeListener(type, listeners);
+  } else if (listeners) {
+    // LIFO order
+    while (listeners.length)
+      this.removeListener(type, listeners[listeners.length - 1]);
+  }
+  delete this._events[type];
+
+  return this;
+};
+
+EventEmitter.prototype.listeners = function(type) {
+  var ret;
+  if (!this._events || !this._events[type])
+    ret = [];
+  else if (isFunction(this._events[type]))
+    ret = [this._events[type]];
+  else
+    ret = this._events[type].slice();
+  return ret;
+};
+
+EventEmitter.prototype.listenerCount = function(type) {
+  if (this._events) {
+    var evlistener = this._events[type];
+
+    if (isFunction(evlistener))
+      return 1;
+    else if (evlistener)
+      return evlistener.length;
+  }
+  return 0;
+};
+
+EventEmitter.listenerCount = function(emitter, type) {
+  return emitter.listenerCount(type);
+};
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+
+
+/***/ }),
+
 /***/ "./node_modules/fbjs/lib/emptyFunction.js":
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -3760,6 +4069,14 @@ module.exports = function hoistNonReactStatics(targetComponent, sourceComponent,
 
     return targetComponent;
 };
+
+
+/***/ }),
+
+/***/ "./node_modules/isomorphic-unfetch/browser.js":
+/***/ (function(module, exports, __webpack_require__) {
+
+module.exports = window.fetch || (window.fetch = __webpack_require__("./node_modules/unfetch/dist/unfetch.es.js").default || __webpack_require__("./node_modules/unfetch/dist/unfetch.es.js"));
 
 
 /***/ }),
@@ -7602,6 +7919,699 @@ exports.encode = exports.stringify = __webpack_require__("./node_modules/queryst
 
 /***/ }),
 
+/***/ "./node_modules/react-dfp/lib/adslot.js":
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.AdSlot = undefined;
+
+var _jsx = function () { var REACT_ELEMENT_TYPE = typeof Symbol === "function" && Symbol.for && Symbol.for("react.element") || 0xeac7; return function createRawReactElement(type, props, key, children) { var defaultProps = type && type.defaultProps; var childrenLength = arguments.length - 3; if (!props && childrenLength !== 0) { props = {}; } if (props && defaultProps) { for (var propName in defaultProps) { if (props[propName] === void 0) { props[propName] = defaultProps[propName]; } } } else if (!props) { props = defaultProps || {}; } if (childrenLength === 1) { props.children = children; } else if (childrenLength > 1) { var childArray = Array(childrenLength); for (var i = 0; i < childrenLength; i++) { childArray[i] = arguments[i + 3]; } props.children = childArray; } return { $$typeof: REACT_ELEMENT_TYPE, type: type, key: key === undefined ? null : '' + key, ref: null, props: props, _owner: null }; }; }();
+
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _react = __webpack_require__("./node_modules/react/cjs/react.development.js");
+
+var _react2 = _interopRequireDefault(_react);
+
+var _propTypes = __webpack_require__("./node_modules/prop-types/index.js");
+
+var _propTypes2 = _interopRequireDefault(_propTypes);
+
+var _manager = __webpack_require__("./node_modules/react-dfp/lib/manager.js");
+
+var _manager2 = _interopRequireDefault(_manager);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var dynamicAdCount = 0;
+
+var AdSlot = exports.AdSlot = function (_React$Component) {
+  _inherits(AdSlot, _React$Component);
+
+  function AdSlot(props) {
+    _classCallCheck(this, AdSlot);
+
+    var _this = _possibleConstructorReturn(this, (AdSlot.__proto__ || Object.getPrototypeOf(AdSlot)).call(this, props));
+
+    _this.doRegisterSlot = _this.doRegisterSlot.bind(_this);
+    _this.generateSlotId = _this.generateSlotId.bind(_this);
+    _this.getSlotId = _this.getSlotId.bind(_this);
+    _this.mapContextToAdSlotProps = _this.mapContextToAdSlotProps.bind(_this);
+    _this.slotShouldRefresh = _this.slotShouldRefresh.bind(_this);
+    _this.slotRenderEnded = _this.slotRenderEnded.bind(_this);
+    _this.state = {
+      slotId: _this.props.slotId || null
+    };
+    return _this;
+  }
+
+  _createClass(AdSlot, [{
+    key: 'componentDidMount',
+    value: function componentDidMount() {
+      // register this ad-unit in the <DFPSlotProvider>, when available.
+      if (this.context !== undefined && this.context.newSlotCallback !== undefined) {
+        this.context.newSlotCallback();
+      }
+      this.registerSlot();
+    }
+  }, {
+    key: 'componentWillReceiveProps',
+    value: function componentWillReceiveProps(nextProps) {
+      if (Object.prototype.hasOwnProperty.call(nextProps, 'objectId')) {
+        var state = this.state;
+        state.slotId = this.generateSlotId();
+        this.unregisterSlot();
+        this.setState(state);
+        this.registerSlot();
+      }
+    }
+  }, {
+    key: 'componentWillUnmount',
+    value: function componentWillUnmount() {
+      this.unregisterSlot();
+    }
+  }, {
+    key: 'getSlotId',
+    value: function getSlotId() {
+      return this.props.slotId || this.state.slotId;
+    }
+  }, {
+    key: 'generateSlotId',
+    value: function generateSlotId() {
+      return 'adSlot-' + dynamicAdCount++;
+    }
+  }, {
+    key: 'mapContextToAdSlotProps',
+    value: function mapContextToAdSlotProps() {
+      var context = this.context;
+      var mappedProps = {};
+      if (context.dfpNetworkId !== undefined) {
+        mappedProps.dfpNetworkId = context.dfpNetworkId;
+      }
+      if (context.dfpAdUnit !== undefined) {
+        mappedProps.adUnit = context.dfpAdUnit;
+      }
+      if (context.dfpSizeMapping !== undefined) {
+        mappedProps.sizeMapping = context.dfpSizeMapping;
+      }
+      if (context.dfpTargetingArguments !== undefined) {
+        mappedProps.targetingArguments = context.dfpTargetingArguments;
+      }
+      return mappedProps;
+    }
+  }, {
+    key: 'doRegisterSlot',
+    value: function doRegisterSlot() {
+      _manager2.default.registerSlot(_extends({}, this.mapContextToAdSlotProps(), this.props, this.state, {
+        slotShouldRefresh: this.slotShouldRefresh
+      }));
+      if (this.props.fetchNow === true) {
+        _manager2.default.load(this.getSlotId());
+      }
+      _manager2.default.attachSlotRenderEnded(this.slotRenderEnded);
+    }
+  }, {
+    key: 'registerSlot',
+    value: function registerSlot() {
+      if (this.state.slotId === null) {
+        this.setState({
+          slotId: this.generateSlotId()
+        }, this.doRegisterSlot);
+      } else {
+        this.doRegisterSlot();
+      }
+    }
+  }, {
+    key: 'unregisterSlot',
+    value: function unregisterSlot() {
+      _manager2.default.unregisterSlot(_extends({}, this.mapContextToAdSlotProps(), this.props, this.state));
+      _manager2.default.detachSlotRenderEnded(this.slotRenderEnded);
+    }
+  }, {
+    key: 'slotRenderEnded',
+    value: function slotRenderEnded(eventData) {
+      if (eventData.slotId === this.getSlotId()) {
+        if (this.props.onSlotRender !== undefined) {
+          this.props.onSlotRender(eventData);
+        }
+      }
+    }
+  }, {
+    key: 'slotShouldRefresh',
+    value: function slotShouldRefresh() {
+      var r = true;
+      if (this.props.shouldRefresh !== undefined) {
+        r = this.props.shouldRefresh(_extends({}, this.mapContextToAdSlotProps(), this.props, {
+          slotId: this.getSlotId() }));
+      }
+      return r;
+    }
+  }, {
+    key: 'render',
+    value: function render() {
+      var slotId = this.state.slotId;
+
+      var props = { className: 'adBox' };
+      if (slotId !== null) {
+        props.id = slotId;
+      }
+      return _jsx('div', {
+        className: 'adunitContainer'
+      }, void 0, _react2.default.createElement('div', props));
+    }
+  }]);
+
+  return AdSlot;
+}(_react2.default.Component);
+
+AdSlot.propTypes = {
+  dfpNetworkId: _propTypes2.default.string,
+  adUnit: _propTypes2.default.string,
+  sizes: _propTypes2.default.arrayOf(_propTypes2.default.oneOfType([_propTypes2.default.arrayOf(_propTypes2.default.number), _propTypes2.default.string])),
+  renderOutOfThePage: _propTypes2.default.bool,
+  sizeMapping: _propTypes2.default.arrayOf(_propTypes2.default.object),
+  fetchNow: _propTypes2.default.bool,
+  adSenseAttributes: _propTypes2.default.object,
+  targetingArguments: _propTypes2.default.object,
+  onSlotRender: _propTypes2.default.func,
+  shouldRefresh: _propTypes2.default.func,
+  slotId: _propTypes2.default.string,
+  objectId: _propTypes2.default.string
+};
+AdSlot.contextTypes = {
+  dfpNetworkId: _propTypes2.default.string,
+  dfpAdUnit: _propTypes2.default.string,
+  dfpSizeMapping: _propTypes2.default.arrayOf(_propTypes2.default.object),
+  dfpTargetingArguments: _propTypes2.default.object,
+  newSlotCallback: _propTypes2.default.func
+};
+AdSlot.defaultProps = {
+  fetchNow: false
+};
+exports.default = AdSlot;
+
+
+/***/ }),
+
+/***/ "./node_modules/react-dfp/lib/dfpslotsprovider.js":
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var _jsx = function () { var REACT_ELEMENT_TYPE = typeof Symbol === "function" && Symbol.for && Symbol.for("react.element") || 0xeac7; return function createRawReactElement(type, props, key, children) { var defaultProps = type && type.defaultProps; var childrenLength = arguments.length - 3; if (!props && childrenLength !== 0) { props = {}; } if (props && defaultProps) { for (var propName in defaultProps) { if (props[propName] === void 0) { props[propName] = defaultProps[propName]; } } } else if (!props) { props = defaultProps || {}; } if (childrenLength === 1) { props.children = children; } else if (childrenLength > 1) { var childArray = Array(childrenLength); for (var i = 0; i < childrenLength; i++) { childArray[i] = arguments[i + 3]; } props.children = childArray; } return { $$typeof: REACT_ELEMENT_TYPE, type: type, key: key === undefined ? null : '' + key, ref: null, props: props, _owner: null }; }; }();
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _react = __webpack_require__("./node_modules/react/cjs/react.development.js");
+
+var _react2 = _interopRequireDefault(_react);
+
+var _propTypes = __webpack_require__("./node_modules/prop-types/index.js");
+
+var _propTypes2 = _interopRequireDefault(_propTypes);
+
+var _manager = __webpack_require__("./node_modules/react-dfp/lib/manager.js");
+
+var _manager2 = _interopRequireDefault(_manager);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var DFPSlotsProvider = function (_React$Component) {
+  _inherits(DFPSlotsProvider, _React$Component);
+
+  function DFPSlotsProvider(props) {
+    _classCallCheck(this, DFPSlotsProvider);
+
+    var _this = _possibleConstructorReturn(this, (DFPSlotsProvider.__proto__ || Object.getPrototypeOf(DFPSlotsProvider)).call(this, props));
+
+    _this.loadAdsIfPossible = _this.loadAdsIfPossible.bind(_this);
+    _this.newSlotCallback = _this.newSlotCallback.bind(_this);
+    _this.totalSlots = 0;
+    return _this;
+  }
+
+  _createClass(DFPSlotsProvider, [{
+    key: 'getChildContext',
+    value: function getChildContext() {
+      return {
+        dfpNetworkId: this.props.dfpNetworkId,
+        dfpAdUnit: this.props.adUnit,
+        dfpSizeMapping: this.props.sizeMapping,
+        dfpTargetingArguments: this.props.targetingArguments,
+        newSlotCallback: this.newSlotCallback
+      };
+    }
+  }, {
+    key: 'componentDidMount',
+    value: function componentDidMount() {
+      _manager2.default.setAdSenseAttributes(this.props.adSenseAttributes);
+      _manager2.default.setCollapseEmptyDivs(this.props.collapseEmptyDivs);
+      if (!this.loadAdsIfPossible()) {
+        _manager2.default.on('slotRegistered', this.loadAdsIfPossible);
+      }
+    }
+
+    // pretty strait-forward interface that children ads use to register
+    // with their DFPSlotProvider parent node.
+
+  }, {
+    key: 'newSlotCallback',
+    value: function newSlotCallback() {
+      this.totalSlots++;
+    }
+
+    // Checks all the mounted children ads have been already registered
+    // in the DFPManager before trying to call the gpt load scripts.
+    // This is helpful when trying to fetch ads with a single request.
+
+  }, {
+    key: 'loadAdsIfPossible',
+    value: function loadAdsIfPossible() {
+      var r = false;
+      if (Object.keys(_manager2.default.getRegisteredSlots()).length >= this.totalSlots) {
+        _manager2.default.removeListener('slotRegistered', this.loadAdsIfPossible);
+        _manager2.default.load();
+        r = true;
+      }
+      return r;
+    }
+  }, {
+    key: 'render',
+    value: function render() {
+      return _jsx('div', {}, void 0, ' ', this.props.children, ' ');
+    }
+  }]);
+
+  return DFPSlotsProvider;
+}(_react2.default.Component);
+
+DFPSlotsProvider.propTypes = {
+  children: _propTypes2.default.oneOfType([_propTypes2.default.element, _propTypes2.default.array]).isRequired,
+  autoLoad: _propTypes2.default.bool,
+  dfpNetworkId: _propTypes2.default.string.isRequired,
+  adUnit: _propTypes2.default.string,
+  sizeMapping: _propTypes2.default.arrayOf(_propTypes2.default.object),
+  adSenseAttributes: _propTypes2.default.object,
+  targetingArguments: _propTypes2.default.object,
+  collapseEmptyDivs: _propTypes2.default.oneOfType([_propTypes2.default.bool, _propTypes2.default.object]),
+  adSenseAttrs: _propTypes2.default.object
+};
+DFPSlotsProvider.childContextTypes = {
+  dfpNetworkId: _propTypes2.default.string,
+  dfpAdUnit: _propTypes2.default.string,
+  dfpSizeMapping: _propTypes2.default.arrayOf(_propTypes2.default.object),
+  dfpTargetingArguments: _propTypes2.default.object,
+  newSlotCallback: _propTypes2.default.func
+};
+DFPSlotsProvider.defaultProps = {
+  autoLoad: true,
+  collapseEmptyDivs: null
+};
+exports.default = DFPSlotsProvider;
+
+
+/***/ }),
+
+/***/ "./node_modules/react-dfp/lib/index.js":
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.DFPSlotsProvider = exports.AdSlot = exports.DFPManager = undefined;
+
+var _manager = __webpack_require__("./node_modules/react-dfp/lib/manager.js");
+
+var _manager2 = _interopRequireDefault(_manager);
+
+var _adslot = __webpack_require__("./node_modules/react-dfp/lib/adslot.js");
+
+var _adslot2 = _interopRequireDefault(_adslot);
+
+var _dfpslotsprovider = __webpack_require__("./node_modules/react-dfp/lib/dfpslotsprovider.js");
+
+var _dfpslotsprovider2 = _interopRequireDefault(_dfpslotsprovider);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+var DFPManager = exports.DFPManager = _manager2.default;
+var AdSlot = exports.AdSlot = _adslot2.default;
+var DFPSlotsProvider = exports.DFPSlotsProvider = _dfpslotsprovider2.default;
+
+
+/***/ }),
+
+/***/ "./node_modules/react-dfp/lib/manager.js":
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+var _events = __webpack_require__("./node_modules/events/events.js");
+
+var _utils = __webpack_require__("./node_modules/react-dfp/lib/utils.js");
+
+var Utils = _interopRequireWildcard(_utils);
+
+function _interopRequireWildcard(obj) { if (obj && obj.__esModule) { return obj; } else { var newObj = {}; if (obj != null) { for (var key in obj) { if (Object.prototype.hasOwnProperty.call(obj, key)) newObj[key] = obj[key]; } } newObj.default = obj; return newObj; } }
+
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+
+var loadAlreadyCalled = false;
+var loadInProgress = false;
+var loadPromise = null;
+var googleGPTScriptLoadPromise = null;
+var registeredSlots = {};
+var managerAlreadyInitialized = false;
+var globalTargetingArguments = {};
+var globalAdSenseAttributes = {};
+
+var DFPManager = _extends(new _events.EventEmitter().setMaxListeners(0), {
+  getAdSenseAttribute: function getAdSenseAttribute(key) {
+    return globalAdSenseAttributes[key];
+  },
+  setAdSenseAttribute: function setAdSenseAttribute(key, value) {
+    this.setAdSenseAttributes(_defineProperty({}, key, value));
+  },
+  getAdSenseAttributes: function getAdSenseAttributes() {
+    return _extends({}, globalAdSenseAttributes);
+  },
+  setAdSenseAttributes: function setAdSenseAttributes(attrs) {
+    _extends(globalAdSenseAttributes, attrs);
+    if (managerAlreadyInitialized === true) {
+      this.getGoogletag().then(function (googletag) {
+        googletag.cmd.push(function () {
+          var pubadsService = googletag.pubads();
+          Object.keys(globalAdSenseAttributes).forEach(function (key) {
+            pubadsService.set(key, globalTargetingArguments[key]);
+          });
+        });
+      });
+    }
+  },
+  setTargetingArguments: function setTargetingArguments(data) {
+    _extends(globalTargetingArguments, data);
+    if (managerAlreadyInitialized === true) {
+      this.getGoogletag().then(function (googletag) {
+        googletag.cmd.push(function () {
+          var pubadsService = googletag.pubads();
+          Object.keys(globalTargetingArguments).forEach(function (varName) {
+            pubadsService.setTargeting(varName, globalTargetingArguments[varName]);
+          });
+        });
+      });
+    }
+  },
+  getTargetingArguments: function getTargetingArguments() {
+    return _extends({}, globalTargetingArguments);
+  },
+  getSlotProperty: function getSlotProperty(slotId, propName) {
+    var slot = this.getRegisteredSlots()[slotId];
+    var ret = null;
+    if (slot !== undefined) {
+      ret = slot[propName] || ret;
+    }
+    return ret;
+  },
+  getSlotTargetingArguments: function getSlotTargetingArguments(slotId) {
+    var propValue = this.getSlotProperty(slotId, 'targetingArguments');
+    return propValue ? _extends({}, propValue) : null;
+  },
+  getSlotAdSenseAttributes: function getSlotAdSenseAttributes(slotId) {
+    var propValue = this.getSlotProperty(slotId, 'adSenseAttributes');
+    return propValue ? _extends({}, propValue) : null;
+  },
+  init: function init() {
+    var _this = this;
+
+    if (managerAlreadyInitialized === false) {
+      managerAlreadyInitialized = true;
+      this.getGoogletag().then(function (googletag) {
+        googletag.cmd.push(function () {
+          var pubadsService = googletag.pubads();
+          pubadsService.addEventListener('slotRenderEnded', function (event) {
+            var slotId = event.slot.getSlotElementId();
+            _this.emit('slotRenderEnded', { slotId: slotId, event: event });
+          });
+          var targetingArguments = _this.getTargetingArguments();
+          // set global targetting arguments
+          Object.keys(targetingArguments).forEach(function (varName) {
+            pubadsService.setTargeting(varName, targetingArguments[varName]);
+          });
+          // set global adSense attributes
+          var adSenseAttributes = _this.getAdSenseAttributes();
+          Object.keys(adSenseAttributes).forEach(function (key) {
+            pubadsService.set(key, adSenseAttributes[key]);
+          });
+        });
+      });
+    }
+  },
+  getGoogletag: function getGoogletag() {
+    if (googleGPTScriptLoadPromise === null) {
+      googleGPTScriptLoadPromise = Utils.loadGPTScript();
+    }
+    return googleGPTScriptLoadPromise;
+  },
+  setCollapseEmptyDivs: function setCollapseEmptyDivs(collapse) {
+    this.collapseEmptyDivs = collapse;
+  },
+  load: function load(slotId) {
+    var _this2 = this;
+
+    if (loadInProgress === true || loadPromise !== null) {
+      loadPromise = loadPromise.then(function () {
+        return _this2.doLoad(slotId);
+      });
+    } else {
+      loadPromise = this.doLoad(slotId);
+    }
+  },
+  doLoad: function doLoad(slotId) {
+    var _this3 = this;
+
+    loadInProgress = true;
+    this.init();
+    var availableSlots = {};
+
+    if (loadAlreadyCalled === true) {
+      var slot = registeredSlots[slotId];
+      if (slot !== undefined) {
+        availableSlots[slotId] = slot;
+      }
+    } else {
+      availableSlots = registeredSlots;
+    }
+
+    availableSlots = Object.keys(availableSlots).filter(function (id) {
+      return !availableSlots[id].loading && !availableSlots[id].gptSlot;
+    }).reduce(function (result, id) {
+      return _extends(result, _defineProperty({}, id, _extends(availableSlots[id], { loading: true })));
+    }, {});
+
+    return this.getGoogletag().then(function (googletag) {
+      Object.keys(availableSlots).forEach(function (currentSlotId) {
+        availableSlots[currentSlotId].loading = false;
+
+        googletag.cmd.push(function () {
+          var slot = availableSlots[currentSlotId];
+          var gptSlot = void 0;
+          var adUnit = slot.dfpNetworkId + '/' + slot.adUnit;
+          if (slot.renderOutOfThePage === true) {
+            gptSlot = googletag.defineOutOfPageSlot(adUnit, currentSlotId);
+          } else {
+            gptSlot = googletag.defineSlot(adUnit, slot.sizes, currentSlotId);
+          }
+          if (gptSlot !== null) {
+            slot.gptSlot = gptSlot;
+            var slotTargetingArguments = _this3.getSlotTargetingArguments(currentSlotId);
+            if (slotTargetingArguments !== null) {
+              Object.keys(slotTargetingArguments).forEach(function (varName) {
+                slot.gptSlot.setTargeting(varName, slotTargetingArguments[varName]);
+              });
+            }
+            var slotAdSenseAttributes = _this3.getSlotAdSenseAttributes(currentSlotId);
+            if (slotAdSenseAttributes !== null) {
+              Object.keys(slotAdSenseAttributes).forEach(function (varName) {
+                slot.gptSlot.set(varName, slotAdSenseAttributes[varName]);
+              });
+            }
+            slot.gptSlot.addService(googletag.pubads());
+            if (slot.sizeMapping) {
+              var smbuilder = googletag.sizeMapping();
+              slot.sizeMapping.forEach(function (mapping) {
+                smbuilder = smbuilder.addSize(mapping.viewport, mapping.sizes);
+              });
+              slot.gptSlot.defineSizeMapping(smbuilder.build());
+            }
+          }
+        });
+      });
+
+      googletag.cmd.push(function () {
+        googletag.pubads().enableSingleRequest();
+
+        if (_this3.collapseEmptyDivs === true || _this3.collapseEmptyDivs === false) {
+          googletag.pubads().collapseEmptyDivs(_this3.collapseEmptyDivs);
+        }
+
+        googletag.enableServices();
+        Object.keys(availableSlots).forEach(function (theSlotId) {
+          googletag.display(theSlotId);
+        });
+        loadAlreadyCalled = true;
+        loadInProgress = false;
+      });
+    });
+  },
+  getRefreshableSlots: function getRefreshableSlots() {
+    var slotsToRefresh = Object.keys(registeredSlots).map(function (k) {
+      return registeredSlots[k];
+    });
+    var slots = {};
+    return slotsToRefresh.reduce(function (last, slot) {
+      if (slot.slotShouldRefresh() === true) {
+        slots[slot.slotId] = slot;
+      }
+      return slots;
+    }, slots);
+  },
+  refresh: function refresh() {
+    var _this4 = this;
+
+    if (loadAlreadyCalled === false) {
+      this.load();
+    } else {
+      this.getGoogletag().then(function (googletag) {
+        var slotsToRefresh = _this4.getRefreshableSlots();
+        googletag.cmd.push(function () {
+          googletag.pubads().refresh(Object.keys(slotsToRefresh).map(function (slotId) {
+            return slotsToRefresh[slotId].gptSlot;
+          }));
+        });
+      });
+    }
+  },
+  registerSlot: function registerSlot(_ref) {
+    var dfpNetworkId = _ref.dfpNetworkId,
+        adUnit = _ref.adUnit,
+        sizes = _ref.sizes,
+        renderOutOfThePage = _ref.renderOutOfThePage,
+        sizeMapping = _ref.sizeMapping,
+        adSenseAttributes = _ref.adSenseAttributes,
+        targetingArguments = _ref.targetingArguments,
+        slotId = _ref.slotId,
+        slotShouldRefresh = _ref.slotShouldRefresh;
+
+    if (!Object.prototype.hasOwnProperty.call(registeredSlots, slotId)) {
+      registeredSlots[slotId] = {
+        slotId: slotId,
+        sizes: sizes,
+        renderOutOfThePage: renderOutOfThePage,
+        dfpNetworkId: dfpNetworkId,
+        adUnit: adUnit,
+        adSenseAttributes: adSenseAttributes,
+        targetingArguments: targetingArguments,
+        sizeMapping: sizeMapping,
+        slotShouldRefresh: slotShouldRefresh,
+        loading: false
+      };
+      this.emit('slotRegistered', { slotId: slotId });
+      if (loadAlreadyCalled === true) {
+        this.load(slotId);
+      }
+    }
+  },
+  unregisterSlot: function unregisterSlot(_ref2) {
+    var slotId = _ref2.slotId;
+
+    delete registeredSlots[slotId];
+  },
+  getRegisteredSlots: function getRegisteredSlots() {
+    return registeredSlots;
+  },
+  attachSlotRenderEnded: function attachSlotRenderEnded(cb) {
+    this.on('slotRenderEnded', cb);
+  },
+  detachSlotRenderEnded: function detachSlotRenderEnded(cb) {
+    this.removeListener('slotRenderEnded', cb);
+  }
+});
+
+exports.default = DFPManager;
+
+
+/***/ }),
+
+/***/ "./node_modules/react-dfp/lib/utils.js":
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.loadGPTScript = loadGPTScript;
+function doloadGPTScript(resolve, reject) {
+  window.googletag = window.googletag || {};
+  window.googletag.cmd = window.googletag.cmd || [];
+
+  var scriptTag = document.createElement('script');
+  scriptTag.src = document.location.protocol + '//www.googletagservices.com/tag/js/gpt.js';
+  scriptTag.async = true;
+  scriptTag.type = 'text/javascript';
+  scriptTag.onerror = function scriptTagOnError(errs) {
+    reject(errs);
+  };
+  scriptTag.onload = function scriptTagOnLoad() {
+    resolve(window.googletag);
+  };
+  document.getElementsByTagName('head')[0].appendChild(scriptTag);
+}
+
+function loadGPTScript() {
+  return new Promise(function (resolve, reject) {
+    doloadGPTScript(resolve, reject);
+  });
+}
+
+
+/***/ }),
+
 /***/ "./node_modules/react-hot-loader/lib/global/generation.js":
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9503,6 +10513,71 @@ module.exports = function shallowEqual(objA, objB, compare, compareContext) {
 
 /***/ }),
 
+/***/ "./node_modules/unfetch/dist/unfetch.es.js":
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+Object.defineProperty(__webpack_exports__, "__esModule", { value: true });
+var index = typeof fetch=='function' ? fetch.bind() : function(url, options) {
+	options = options || {};
+	return new Promise( function (resolve, reject) {
+		var request = new XMLHttpRequest();
+
+		request.open(options.method || 'get', url);
+
+		for (var i in options.headers) {
+			request.setRequestHeader(i, options.headers[i]);
+		}
+
+		request.withCredentials = options.credentials=='include';
+
+		request.onload = function () {
+			resolve(response());
+		};
+
+		request.onerror = reject;
+
+		request.send(options.body);
+
+		function response() {
+			var keys = [],
+				all = [],
+				headers = {},
+				header;
+
+			request.getAllResponseHeaders().replace(/^(.*?):\s*([\s\S]*?)$/gm, function (m, key, value) {
+				keys.push(key = key.toLowerCase());
+				all.push([key, value]);
+				header = headers[key];
+				headers[key] = header ? (header + "," + value) : value;
+			});
+
+			return {
+				ok: (request.status/200|0) == 1,		// 200-299
+				status: request.status,
+				statusText: request.statusText,
+				url: request.responseURL,
+				clone: response,
+				text: function () { return Promise.resolve(request.responseText); },
+				json: function () { return Promise.resolve(request.responseText).then(JSON.parse); },
+				blob: function () { return Promise.resolve(new Blob([request.response])); },
+				headers: {
+					keys: function () { return keys; },
+					entries: function () { return all; },
+					get: function (n) { return headers[n.toLowerCase()]; },
+					has: function (n) { return n.toLowerCase() in headers; }
+				}
+			};
+		}
+	});
+};
+
+/* harmony default export */ __webpack_exports__["default"] = (index);
+//# sourceMappingURL=unfetch.es.js.map
+
+
+/***/ }),
+
 /***/ "./node_modules/url/url.js":
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -10355,6 +11430,82 @@ module.exports = function(module) {
 
 /***/ }),
 
+/***/ "./pages/components/DFP/dfp.js":
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* WEBPACK VAR INJECTION */(function(module) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_react__ = __webpack_require__("./node_modules/react/cjs/react.development.js");
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_react___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_0_react__);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1_react_dfp__ = __webpack_require__("./node_modules/react-dfp/lib/index.js");
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1_react_dfp___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_1_react_dfp__);
+var _jsxFileName = '/home/miguel/Dev/Nextjs/actitudfem/pages/components/DFP/dfp.js';
+
+(function () {
+  var enterModule = __webpack_require__("./node_modules/react-hot-loader/patch.js").enterModule;
+
+  enterModule && enterModule(module);
+})();
+
+
+
+
+var DFP = function DFP(props) {
+  return __WEBPACK_IMPORTED_MODULE_0_react___default.a.createElement(
+    __WEBPACK_IMPORTED_MODULE_1_react_dfp__["DFPSlotsProvider"],
+    { dfpNetworkId: '35139216', adUnit: "Actitudfem", __source: {
+        fileName: _jsxFileName,
+        lineNumber: 6
+      }
+    },
+    __WEBPACK_IMPORTED_MODULE_0_react___default.a.createElement(__WEBPACK_IMPORTED_MODULE_1_react_dfp__["AdSlot"], { sizes: [[900, 90], [props.width, props.height]], __source: {
+        fileName: _jsxFileName,
+        lineNumber: 7
+      }
+    })
+  );
+};
+
+var _default = DFP;
+/* harmony default export */ __webpack_exports__["a"] = (_default);
+;
+
+(function () {
+  var reactHotLoader = __webpack_require__("./node_modules/react-hot-loader/patch.js").default;
+
+  var leaveModule = __webpack_require__("./node_modules/react-hot-loader/patch.js").leaveModule;
+
+  if (!reactHotLoader) {
+    return;
+  }
+
+  reactHotLoader.register(DFP, 'DFP', '/home/miguel/Dev/Nextjs/actitudfem/pages/components/DFP/dfp.js');
+  reactHotLoader.register(_default, 'default', '/home/miguel/Dev/Nextjs/actitudfem/pages/components/DFP/dfp.js');
+  leaveModule(module);
+})();
+
+;
+    (function (Component, route) {
+      if(!Component) return
+      if (false) return
+      module.hot.accept()
+      Component.__route = route
+
+      if (module.hot.status() === 'idle') return
+
+      var components = next.router.components
+      for (var r in components) {
+        if (!components.hasOwnProperty(r)) continue
+
+        if (components[r].Component.__route === route) {
+          next.router.update(r, Component)
+        }
+      }
+    })(typeof __webpack_exports__ !== 'undefined' ? __webpack_exports__.default : (module.exports.default || module.exports), "/components/DFP/dfp")
+  
+/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__("./node_modules/webpack/buildin/harmony-module.js")(module)))
+
+/***/ }),
+
 /***/ "./pages/components/header.js":
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
@@ -10508,7 +11659,7 @@ var Layout = function Layout(props) {
 };
 
 var _default = Layout;
-/* harmony default export */ __webpack_exports__["a"] = (_default);
+/* unused harmony default export */ var _unused_webpack_default_export = (_default);
 ;
 
 (function () {
@@ -10554,9 +11705,17 @@ var _default = Layout;
 
 "use strict";
 Object.defineProperty(__webpack_exports__, "__esModule", { value: true });
-/* WEBPACK VAR INJECTION */(function(module) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_react__ = __webpack_require__("./node_modules/react/cjs/react.development.js");
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_react___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_0_react__);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__components_layout__ = __webpack_require__("./pages/components/layout.js");
+/* WEBPACK VAR INJECTION */(function(module) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_babel_runtime_regenerator__ = __webpack_require__("./node_modules/babel-runtime/regenerator/index.js");
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_babel_runtime_regenerator___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_0_babel_runtime_regenerator__);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1_react__ = __webpack_require__("./node_modules/react/cjs/react.development.js");
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1_react___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_1_react__);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2_next_link__ = __webpack_require__("./node_modules/next/link.js");
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2_next_link___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_2_next_link__);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3_isomorphic_unfetch__ = __webpack_require__("./node_modules/isomorphic-unfetch/browser.js");
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3_isomorphic_unfetch___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_3_isomorphic_unfetch__);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__components_layout__ = __webpack_require__("./pages/components/layout.js");
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__components_DFP_dfp__ = __webpack_require__("./pages/components/DFP/dfp.js");
+
 var _jsxFileName = '/home/miguel/Dev/Nextjs/actitudfem/pages/index.js';
 
 (function () {
@@ -10565,30 +11724,137 @@ var _jsxFileName = '/home/miguel/Dev/Nextjs/actitudfem/pages/index.js';
   enterModule && enterModule(module);
 })();
 
+function _asyncToGenerator(fn) { return function () { var gen = fn.apply(this, arguments); return new Promise(function (resolve, reject) { function step(key, arg) { try { var info = gen[key](arg); var value = info.value; } catch (error) { reject(error); return; } if (info.done) { resolve(value); } else { return Promise.resolve(value).then(function (value) { step("next", value); }, function (err) { step("throw", err); }); } } return step("next"); }); }; }
 
 
 
-var Index = function Index() {
-  return __WEBPACK_IMPORTED_MODULE_0_react___default.a.createElement(
-    __WEBPACK_IMPORTED_MODULE_1__components_layout__["a" /* default */],
+
+
+
+
+
+var imgs = [{
+  href: 'http://www.imagen.com.mx/',
+  position: '2px 63.6%',
+  height: '32px',
+  width: '87px'
+}, {
+  position: '40% 63.6%',
+  height: '30px',
+  width: '100px'
+}];
+
+var Index = function Index(props) {
+  return __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+    'div',
     {
       __source: {
         fileName: _jsxFileName,
-        lineNumber: 6
+        lineNumber: 24
       }
     },
-    __WEBPACK_IMPORTED_MODULE_0_react___default.a.createElement(
-      'p',
+    __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(__WEBPACK_IMPORTED_MODULE_5__components_DFP_dfp__["a" /* default */], { width: 300, height: 100, __source: {
+        fileName: _jsxFileName,
+        lineNumber: 25
+      }
+    }),
+    __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+      'ul',
       {
         __source: {
           fileName: _jsxFileName,
-          lineNumber: 7
+          lineNumber: 26
         }
       },
-      'cosa chida'
-    )
+      props.shows.data.map(function (show) {
+        return __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+          'li',
+          { key: show.id, __source: {
+              fileName: _jsxFileName,
+              lineNumber: 28
+            }
+          },
+          __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement('img', { src: show.images.files[0].url, __source: {
+              fileName: _jsxFileName,
+              lineNumber: 29
+            }
+          }),
+          __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+            'h2',
+            {
+              __source: {
+                fileName: _jsxFileName,
+                lineNumber: 30
+              }
+            },
+            show.title
+          ),
+          __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+            'p',
+            {
+              __source: {
+                fileName: _jsxFileName,
+                lineNumber: 31
+              }
+            },
+            show.summary
+          ),
+          __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+            __WEBPACK_IMPORTED_MODULE_2_next_link___default.a,
+            { as: '/p/' + show.id, href: '/post?id=' + show.id, __source: {
+                fileName: _jsxFileName,
+                lineNumber: 32
+              }
+            },
+            __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(
+              'a',
+              {
+                __source: {
+                  fileName: _jsxFileName,
+                  lineNumber: 33
+                }
+              },
+              'VER MAS'
+            )
+          )
+        );
+      })
+    ),
+    __WEBPACK_IMPORTED_MODULE_1_react___default.a.createElement(__WEBPACK_IMPORTED_MODULE_5__components_DFP_dfp__["a" /* default */], { width: 600, height: 100, __source: {
+        fileName: _jsxFileName,
+        lineNumber: 38
+      }
+    })
   );
 };
+
+Index.getInitialProps = _asyncToGenerator( /*#__PURE__*/__WEBPACK_IMPORTED_MODULE_0_babel_runtime_regenerator___default.a.mark(function _callee() {
+  var res, data;
+  return __WEBPACK_IMPORTED_MODULE_0_babel_runtime_regenerator___default.a.wrap(function _callee$(_context) {
+    while (1) {
+      switch (_context.prev = _context.next) {
+        case 0:
+          _context.next = 2;
+          return __WEBPACK_IMPORTED_MODULE_3_isomorphic_unfetch___default()('http://localhost:5000/api');
+
+        case 2:
+          res = _context.sent;
+          _context.next = 5;
+          return res.json();
+
+        case 5:
+          data = _context.sent;
+          return _context.abrupt('return', {
+            shows: data
+          });
+
+        case 7:
+        case 'end':
+          return _context.stop();
+      }
+    }
+  }, _callee, this);
+}));
 
 var _default = Index;
 /* harmony default export */ __webpack_exports__["default"] = (_default);
@@ -10603,6 +11869,7 @@ var _default = Index;
     return;
   }
 
+  reactHotLoader.register(imgs, 'imgs', '/home/miguel/Dev/Nextjs/actitudfem/pages/index.js');
   reactHotLoader.register(Index, 'Index', '/home/miguel/Dev/Nextjs/actitudfem/pages/index.js');
   reactHotLoader.register(_default, 'default', '/home/miguel/Dev/Nextjs/actitudfem/pages/index.js');
   leaveModule(module);
